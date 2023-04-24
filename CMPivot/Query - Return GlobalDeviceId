@@ -1,0 +1,3 @@
+// This query will collect the GlobalDeviceId value from devices. Used for Microsoft troubleshooting related to the Microsoft 365 Apps admin center (config.office.com)
+
+Registry('hklm:\\SOFTWARE\\Microsoft\\Office\\C2RSvcMgr') | where Property == 'GlobalDeviceId'
