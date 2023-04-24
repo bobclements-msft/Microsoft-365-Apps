@@ -1,0 +1,6 @@
+// This query can help identify devices that have not onboarded or have been inactive with the Inventory service in the Microsoft 365 Apps admin center (config.office.com)
+// Returns a list of devices and a Yes/No value based on the presence of TenantAssociationKey. 
+
+Device
+| join kind=leftouter (Registry('hklm:\SOFTWARE\Policies\Microsoft\cloud\office\16.0\Common\officesvcmanager') | where Property == ('TenantAssociationKey'))
+| project Device, RegKeyFound=iif( isnull(Property), 'No', 'Yes')
