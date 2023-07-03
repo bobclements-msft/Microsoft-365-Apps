@@ -47,7 +47,7 @@ $CleanTempFiles = $true
 $ExportToRegistry = $true
 
 # [OPTIONAL] $true/$false to export to CSV (use a file share for central reporting)
-$ExportToCsv = $true # off by default, requires $ExportToRegistry = $true and a valid path for $csvFilePath
+$ExportToCsv = $false # off by default, requires $ExportToRegistry = $true and a valid path for $csvFilePath
 
 #=================== Configuration for application execution ===================#
 
