@@ -35,7 +35,7 @@ $ImportSchTask = $true
 $RunAccess = $true
 $RunExcel = $true
 $RunOneNote = $false # not working as of version 1.3
-$RunOutlook = $true
+$RunOutlook = $false # off by default, Outlook must have an account setup before running
 $RunPowerPoint = $true
 $RunPublisher = $true
 $RunWord = $true
@@ -47,7 +47,7 @@ $CleanTempFiles = $true
 $ExportToRegistry = $true
 
 # [OPTIONAL] $true/$false to export to CSV (use a file share for central reporting)
-$ExportToCsv = $true
+$ExportToCsv = $true # off by default, requires $ExportToRegistry = $true and a valid path for $csvFilePath
 
 #=================== Configuration for application execution ===================#
 
