@@ -83,7 +83,7 @@ $ExportToCsv = $true
 #===================== Configuration for file-based logging ====================#
 
 # [REQUIRED] File save path for local logging
-$LogFile = "\\<ServerName>\OfficeAppUsage\"+$env:COMPUTERNAME+"-OfficeUsage-RunLog-1.log"
+$LogFile = "\\<ServerName>\OfficeAppUsage\Logs\"+$env:COMPUTERNAME+"-OfficeUsage-RunLog-1.log"
 
 # [REQUIRED] File save path for rollover log
 $RollingLogFile = "\\<ServerName>\OfficeAppUsage\Logs\"+$env:COMPUTERNAME+"-OfficeUsage-RunLog-2.log"
