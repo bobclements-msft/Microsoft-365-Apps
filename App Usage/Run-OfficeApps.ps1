@@ -19,6 +19,7 @@
     [2023-07-01] - 1.1 - Added local logging.
     [2023-07-01] - 1.2 - Added registry logging.
     [2023-07-03] - 1.3 - Added file share report (csv).
+    [2023-07-05] - 1.4 - Added random start delay.
 #>
 
 # Start script timer
@@ -26,60 +27,73 @@ $StopWatch = [system.diagnostics.stopwatch]::StartNew()
 
 #region ############### Start Initialize ###############
 
-#=================== Configuration for main script execution ===================#
-
-# [OPTIONAL] $true/$false to import the scheduled task
-$ImportSchTask = $true
-
-# [OPTIONAL] $true/$false to run each of the app usage workloads
-$RunAccess = $true
-$RunExcel = $true
-$RunOneNote = $false # not working as of version 1.3
-$RunOutlook = $false # off by default, Outlook must have an account setup before running
-$RunPowerPoint = $true
-$RunPublisher = $true
-$RunWord = $true
-
-# [OPTIONAL] $true/$false to automatically clean up temp document files
-$CleanTempFiles = $true
-
-# [OPTIONAL] $true/$false to export to the registry
-$ExportToRegistry = $true
-
-# [OPTIONAL] $true/$false to export to CSV (use a file share for central reporting)
-$ExportToCsv = $false # off by default, requires $ExportToRegistry = $true and a valid path for $csvFilePath
-
-#=================== Configuration for application execution ===================#
-
-# [REQUIRED] Assigned script version based on version history (used in logging)
-$scriptVersion = "1.3"
+#=============================== REVIEW & UPDATE ===============================#
 
 # [REQUIRED] Defines how long in seconds each app remains open
 $appDelay = 10
 
-# [REQUIRED] File save path where each app saves temporary documents
-$officePerfPath = "C:\OfficePerf"
+# [REQUIRED] File path where each app saves temporary documents, cleaned up by $CleanTempFiles
+$officeTempPath = "C:\OfficeTemp"
 
 # [REQUIRED] File path to the Scheduled Task XML
-$scheduledTaskPath = "C:\Scripts\Office Apps Automation.xml"
+$scheduledTaskPath = "\\<ServerName>\OfficeAppUsage\Script\Office Apps Automation.xml"
 
-#===================== Configuration for file-based logging ====================#
-
-# [REQUIRED] File save path for local logging
-$LogFile = "$env:SystemDrive\Scripts\OfficeApps-RunLog-1.log"
-
-# [REQUIRED] File save path for rollover log
-$RollingLogFile = "$env:SystemDrive\Scripts\OfficeApps-RunLog-2.log"
-
-# [REQUIRED] Number of lines before the local log rolls over
-$maxLogSize = 500
-
-#===================== Configuration for registry logging =====================#
+# [REQUIRED] Required if $ExportToCsv = $true
+$csvFilePath = "\\<ServerName>\OfficeAppUsage\Report\AppUsage-Report.csv"
 
 # [REQUIRED] Registry path for recording key data points
 $regPath = "HKLM:\SOFTWARE\Microsoft\Office\AppUsage"
 
-# [DO NOT CHANGE] Registy values
+#======================= Enable/Disable Script Functions =======================#
+
+# $true/$false to run this app usage workload
+$RunAccess = $true
+
+# $true/$false to run this app usage workload
+$RunExcel = $true
+
+# $true/$false to run this app usage workload, $false by default, not working in version 1.3
+$RunOneNote = $false
+
+# $true/$false to run this app usage workload, $false by default, Outlook must have an account setup before running
+$RunOutlook = $true
+
+# $true/$false to run this app usage workload
+$RunPowerPoint = $true
+
+# $true/$false to run this app usage workload
+$RunPublisher = $true
+
+# $true/$false to run this app usage workload
+$RunWord = $true
+
+# $true/$false to import the scheduled task
+$ImportSchTask = $true
+
+# $true/$false to automatically clean up temp document files created by this script
+$CleanTempFiles = $true
+
+# $true/$false to export script metrics to the registry
+$ExportToRegistry = $true
+
+# $true/$false to export script metrics to CSV, $false by default, point to a file share for central reporting
+# requires $ExportToRegistry = $true, requires a valid $csvFilePath
+$ExportToCsv = $true
+
+#===================== Configuration for file-based logging ====================#
+
+# [REQUIRED] File save path for local logging
+$LogFile = "\\<ServerName>\OfficeAppUsage\"+$env:COMPUTERNAME+"-OfficeUsage-RunLog-1.log"
+
+# [REQUIRED] File save path for rollover log
+$RollingLogFile = "\\<ServerName>\OfficeAppUsage\Logs\"+$env:COMPUTERNAME+"-OfficeUsage-RunLog-2.log"
+
+# [REQUIRED] Number of lines before the local log rolls over
+$maxLogSize = 500
+
+#================================ DO NOT CHANGE ================================#
+
+$scriptVersion = "1.4"
 $regScriptVersion = $scriptVersion
 $regNameCounter = "ScriptCounter"
 $regNameFirstRun = "ScriptFirstRun"
@@ -88,14 +102,10 @@ $regNameScriptVersion = "ScriptVersion"
 $regNameStopwatch = "ScriptRunTime"
 $regNameTimestamp = "ScriptLastRun"
 
-#===================== Configuration for file share report =====================#
-
-# [REQUIRED] Required if $ExportToCsv = $true
-$csvFilePath = "\\file\share\OfficeAppUsage\AppUsage-Report.csv"
-
 #endregion ############### End Initialize ###############
 
 #region ############### Start Functions ###############
+
 function Write-Log 
 {
     <#
@@ -152,8 +162,10 @@ function Import-SchTask
     if ($ImportSchTask)
     {
         $taskUser = whoami
+        Write-Log -Content "Importing scheduled task: $scheduledTaskPath"
         try {
             Register-ScheduledTask -Xml (Get-Content $scheduledTaskPath | Out-String) -TaskName "Office Apps Automation" -User $taskUser –Force
+            Write-Log -Content "Import successful!"
         } catch {
             Write-Log -Content "Erorr: $($Error[0].Exception.Message)."
             Write-Log -Content "$functionName failed. Skipping."
@@ -170,8 +182,8 @@ function Create-Directory
 {
     $functionName = $MyInvocation.MyCommand.Name
     Write-Log -Content "Executing: $functionName"
-    Write-Log -Content "Checking for: $officePerfPath"
-    if (!(Test-Path -Path $officePerfPath)) {New-Item -ItemType Directory -Path $officePerfPath | Out-Null; Write-Log -Content "Creating directory: $officePerfPath"}
+    Write-Log -Content "Checking for: $officeTempPath"
+    if (!(Test-Path -Path $officeTempPath)) {New-Item -ItemType Directory -Path $officeTempPath | Out-Null; Write-Log -Content "Creating directory: $officeTempPath"}
 }
 
 function Run-Access
@@ -200,7 +212,7 @@ function Run-Access
         $accessObj.Visible = $true
 
         # Create DB file
-        $database = $accessObj.NewCurrentDatabase("$officePerfPath\MyDatabase_"+(Get-Date -Format yymmddHHmmss)+".accdb")
+        $database = $accessObj.NewCurrentDatabase("$officeTempPath\MyDatabase_"+(Get-Date -Format yymmddHHmmss)+".accdb")
         Start-Sleep -Seconds $appDelay
 
         # Close app
@@ -273,7 +285,7 @@ function Run-Excel
             $counter++
         }
 
-        $ExcelWorkBook.SaveAs("$officePerfPath\MyExcel_"+(Get-Date -Format yymmddHHmmss)+".xlsx")
+        $ExcelWorkBook.SaveAs("$officeTempPath\MyExcel_"+(Get-Date -Format yymmddHHmmss)+".xlsx")
         Start-Sleep -Seconds $appDelay
                 
         # Close app
@@ -417,7 +429,7 @@ function Run-PowerPoint
         $slide4.Shapes.Title.TextFrame.TextRange.Text = "Slide 3"
         $slide4.Shapes.AddTextbox(1, 100, 100, 500, 300).TextFrame.TextRange.Text = "Slide 4"
 
-        $presentation.SaveAs("$officePerfPath\MyPowerPoint_"+(Get-Date -Format yymmddHHmmss)+".pptx")
+        $presentation.SaveAs("$officeTempPath\MyPowerPoint_"+(Get-Date -Format yymmddHHmmss)+".pptx")
         Start-Sleep -Seconds $appDelay
 
         # Close app
@@ -454,7 +466,7 @@ function Run-Publisher
     
         Write-Log -Content "Running $appName for $appDelay seconds." 
         $document = $publisherObj.Documents.Add()
-        $document.SaveAs("$officePerfPath\MyPubDoc_"+(Get-Date -Format yymmddHHmmss)+".pub")
+        $document.SaveAs("$officeTempPath\MyPubDoc_"+(Get-Date -Format yymmddHHmmss)+".pub")
         Start-Sleep -Seconds $appDelay
 
         # Close app
@@ -506,7 +518,7 @@ function Run-Word
             $selection.font.size = 11
             $selection.typeText($services)
 
-            $wordDoc.SaveAs("$officePerfPath\MyWordDoc_"+(Get-Date -Format yymmddHHmmss)+".docx")
+            $wordDoc.SaveAs("$officeTempPath\MyWordDoc_"+(Get-Date -Format yymmddHHmmss)+".docx")
             Start-Sleep -Seconds $appDelay
 
             # Close app
@@ -528,7 +540,7 @@ function Clean-Files
 
     if ($CleanTempFiles)
     {
-        Remove-Item -Path $officePerfPath -Recurse -Confirm:$false -Force
+        Remove-Item -Path $officeTempPath -Recurse -Confirm:$false -Force
     }
     else
     {
@@ -661,6 +673,11 @@ function Update-CSV
 #region ############### Start Main Script ###############
 
 Write-Log -Content "***** SCRIPT EXECUTION STARTED *****"
+
+$startDelay = Get-Random -Minimum 60 -Maximum 180
+Write-Log -Content "Randomizing start delay by $startDelay seconds."
+Write-Output "Randomizing start delay by $startDelay seconds."
+Start-Sleep $startDelay
 
 Import-SchTask
 Create-Directory
