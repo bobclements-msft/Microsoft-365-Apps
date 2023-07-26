@@ -56,7 +56,7 @@ $RunExcel = $true
 $RunOneNote = $false
 
 # $true/$false to run this app usage workload, $false by default, Outlook must have an account setup before running
-$RunOutlook = $true
+$RunOutlook = $false
 
 # $true/$false to run this app usage workload
 $RunPowerPoint = $true
