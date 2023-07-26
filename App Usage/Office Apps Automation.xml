@@ -51,8 +51,8 @@
   <Actions Context="Author">
     <Exec>
       <Command>C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe</Command>
-      <Arguments>-WindowStyle Hidden -ExecutionPolicy Bypass -file ""\\server\Script\Run-OfficeApps.ps1""</Arguments>
-      <WorkingDirectory>\\server\Script</WorkingDirectory>
+      <Arguments>-WindowStyle Hidden -ExecutionPolicy Bypass -file ""\\<ServerName>\OfficeAppUsage\Script\Run-OfficeApps.ps1""</Arguments>
+      <WorkingDirectory>\\<ServerName>\OfficeAppUsage\Script</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>
