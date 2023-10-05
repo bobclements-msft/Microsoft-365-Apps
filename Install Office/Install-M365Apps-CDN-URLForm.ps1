@@ -1,4 +1,6 @@
 # 10.05.2023 - v1.0
+# Run command for ConfigMgr/Intune: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File Install-M365Apps-CDN-URLForm.ps1
+# Detection logic for ConfigMgr/Intune: SOFTWARE\Microsoft\Office\ClickToRun\Configuration > VersionToReport > exists
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
