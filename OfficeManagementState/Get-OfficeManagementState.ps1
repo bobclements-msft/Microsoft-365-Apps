@@ -1,35 +1,68 @@
+<#PSScriptInfo
+
+.VERSION 1.1
+
+.GUID fc5c9bba-5f95-4e40-99c3-2b8785bb067c
+
+.AUTHOR Bob Clements
+
+.COMPANYNAME
+
+.COPYRIGHT 
+
+.TAGS Office Microsoft 365 Apps Cloud Update
+
+.LICENSEURI 
+
+.PROJECTURI https://raw.githubusercontent.com/bobclements-msft/Microsoft-365-Apps/refs/heads/main/OMS/Get-OMS.ps1
+
+.ICONURI 
+
+.EXTERNALMODULEDEPENDENCIES 
+
+.REQUIREDSCRIPTS 
+
+.EXTERNALSCRIPTDEPENDENCIES 
+
+.RELEASENOTES
+Version 1.0:  Original published version.
+Version 1.1:  Fixed release information, code clean up.
+#>
+
 <#
-    .SYNOPSIS
-    Get-OMS.ps1 is a script for determining what management tool is managing Microsoft 365 Apps
+.SYNOPSIS
+Reports the update management state for Microsoft 365 Apps for the local or remote computer
 
-    .DESCRIPTION
-    This script reports the current management state for Microsoft 365 Apps
+Copyright (c) Microsoft Corporation. All rights reserved. Licensed under the MIT license.
 
-    .PARAMETER ComputerName
-    Provide the name of a remote computer. All required information will be retreived using Remote PowerShell. Output will be shown locally.
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), 
+to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
+and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
-    .PARAMETER UseCredentials
-    Use specified credentials for exection locally or remotely.
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, 
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-    .EXAMPLE
-    PS> Get-OMS.ps1
-    # Runs the script on the local computer using the current credentials and outputs results to the local console window.
-
-    .EXAMPLE
-    PS> Get-OMS.ps1 -ComputerName "RemotePC"
-    # Runs the script on the remote computer using the current credentials and outputs results to the local console window.
-
-    .EXAMPLE
-    PS> Get-OMS.ps1 -ComputerName "RemotePC" -UseCredentials
-    # Runs the script on the remote computer using the specified credentials and outputs results to the local console window.
-
-    .NOTES
-    Copyright (c) Microsoft Corporation. All rights reserved. Licensed under the MIT license.
-    See LICENSE in the project root for license information.
-
-    Version History
-    [2024-10-10] - Script created.
-    [2024-10-21] - Added support for remote execution.
+.DESCRIPTION
+This script retreives properties from the Windows registry to determine what management tool is currently managing updates for Microsoft 365 Apps. 
+.PARAMETER RemoteComputer
+Provide the name of a remote computer. All required information will be retreived using PowerShell remoting. Output will be shown locally.
+.PARAMETER UseCredentials
+Use specific account credentials for exection locally or remotely.
+.EXAMPLE
+# Runs the script on the local computer using the current credentials and outputs the results to the local console window.
+.\Get-OfficeManagementState.ps1
+.EXAMPLE
+# Runs the script on the remote computer using the current credentials and outputs the results to the local console window.
+.\Get-OfficeManagementState.ps1 -RemoteComputer "RemotePC"
+.EXAMPLE
+# Runs the script on the remote computer using the specified credentials and outputs results to the local console window.
+.\Get-OfficeManagementState.ps1 -RemoteComputer "RemotePC" -UseCredentials
+.NOTES
+Version History:
+    1.0 - (2024-11-15) Original published version.
+    1.1 - (2024-11-16) Fixed release information, code clean up.
 #>
 
 [CmdletBinding()]
@@ -41,16 +74,7 @@ param (
     [switch]$UseCredentials
 )
 
-#region ############### Start Initialize ###############
-
-#=================== Configuration for logging and output ===================#
-
-# [REQUIRED] Path for log file output 
-$LogFile = "$env:windir\Temp\OfficeMgmtState.log"
-
-#endregion ############### End Initialize ###############
-
-#region ############### Start Functions ###############
+#region Helper functions
 
 function Convert-OfficeChannel {
     <#
@@ -166,7 +190,7 @@ function Get-C2RCom {
         $apps.Populate()
 
         # Query for OfficeC2RCom and return the result
-        $app = $apps | Where-Object {$_.Name -eq "OfficeC2RComa"}
+        $app = $apps | Where-Object {$_.Name -eq "OfficeC2RCom"}
         if ($app) {
             return $app
         } else {
@@ -197,7 +221,7 @@ function Get-C2RReleaseInfo {
         Output information for a version of Micrsooft 365 Apps
 
     .DESCRIPTION
-        Take a build number for Microsoft 365 Apps and output additional information
+        Provide a build number for Microsoft 365 Apps to find the matching release information via web API
 
     .EXAMPLE
         PS> Get-C2RReleaseInfo -BuildVersion 17928.20216
@@ -461,7 +485,7 @@ function Write-Log {
         [Parameter(Mandatory=$true,Position=0)]
         [string]$Content,
         [Parameter(Mandatory=$false,Position=1)]
-        [string]$LogFile = $LogFile
+        [string]$LogFile = "$env:windir\Temp\OfficeMgmtState.log"
     )
 
     $LogDate = Get-Date -Format "MM/dd/yyyy HH:mm:ss"
@@ -470,9 +494,7 @@ function Write-Log {
     #Write-Output $LogLine
 }
 
-#endregion ############### End Functions ###############
-
-Clear-Host
+#endregion
 
 Write-Log -Content "***** INITIALIZING SCRIPT - OMS *****"
 
@@ -486,7 +508,7 @@ $regC2RPath = "HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration"
 $regC2RSMPath = "HKLM:\SOFTWARE\Microsoft\Office\C2RSvcMgr"
 $regADMXPath = "HKLM:\SOFTWARE\Policies\Microsoft\office\16.0\Common\officeupdate"
 $regSMPath = "HKLM:\SOFTWARE\Policies\Microsoft\cloud\office\16.0\Common\officeupdate"
-$regOCSPPath = "HKLM:\SOFTWARE\Microsoft\OfficeCSP"
+#$regOCSPPath = "HKLM:\SOFTWARE\Microsoft\OfficeCSP"
 
 Write-Log -Content "Retreiving OMS data from the device."
 
@@ -535,13 +557,16 @@ if ($ComputerName) {
 Write-Log -Content "Setting buildversion."
 if ($regC2R.VersionToReport) {$buildVersion = $regC2R.VersionToReport}
 
-# Get Office release information using the detected build version
-Write-Log -Content "Getting Office release info."
-if ($buildVersion) {$C2RReleaseInfo = Get-C2RReleaseInfo -BuildVersion $buildVersion}
-
 # Convert the CDN URL to the friendly channel name
 Write-Log -Content "Formatting Office update channel friendly names."
-if ($regC2R.UpdateChannel) {$OfficeChannelFriendly = (Convert-OfficeChannel -OfficeChannel $regC2R.UpdateChannel).OfficeChannelFriendly}
+if ($regC2R.UpdateChannel) {
+    $OfficeChannelFriendly = (Convert-OfficeChannel -OfficeChannel $regC2R.UpdateChannel).OfficeChannelFriendly
+    $OfficeChannelShort = (Convert-OfficeChannel -OfficeChannel $regC2R.UpdateChannel).OfficeChannelShort
+}
+
+# Get Office release information using the detected build version
+Write-Log -Content "Getting Office release info."
+if ($buildVersion) {$C2RReleaseInfo = Get-C2RReleaseInfo -BuildVersion $buildVersion -OfficeChannelShort $OfficeChannelShort}
 
 # Format DsRegStatus output
 Write-Log -Content "Formatting computer info."
@@ -550,6 +575,11 @@ if ($ComputerInfo.AzureAdJoined -eq "YES" -and $ComputerInfo.DomainJoined -eq "Y
 #region ############### Start Management Logic ###############
 
 Write-Log -Content "Starting OMS rules."
+
+# MgmtType 1 = Cloud Update
+# MgmtType 2 = ADMX
+# MgmtType 3 = ConfigMgr
+# MgmtType 4 = M365 admin center
 
 Write-Log -Content "Checking for an installation of Microsoft 365 Apps C2R."
 if (# 00 Microsft 365 Apps detection
@@ -571,9 +601,7 @@ elseif (# 01 Managed by Cloud Update via config.office.com
     {
         Write-Output "    Path: $regSMPath"
         Write-Output ""
-        $regSM.PSObject.Properties | Where-Object { $_.Name -notmatch '^PS' -and $_.Name -notmatch 'lastupdated'} | Sort-Object Name | ForEach-Object {
-            Write-Output "    • $($_.Name): $($_.Value)"
-        }
+        $regSM.PSObject.Properties | Where-Object { $_.Name -notmatch '^PS' -and $_.Name -notmatch 'lastupdated'} | Sort-Object Name | ForEach-Object { Write-Output "    > $($_.Name): $($_.Value)" }
     } else { Write-Output "No policies found." }
 }
 elseif (# 02 Managed by ADMX policies via LPO, GPO, and/or Intune
@@ -588,9 +616,7 @@ elseif (# 02 Managed by ADMX policies via LPO, GPO, and/or Intune
     {
         Write-Output "    Path: $regADMXPath"
         Write-Output ""
-        $regADMX.PSObject.Properties | Where-Object { $_.Name -notmatch '^PS' } | Sort-Object Name | ForEach-Object {
-            Write-Output "    • $($_.Name): $($_.Value)"
-        }
+        $regADMX.PSObject.Properties | Where-Object { $_.Name -notmatch '^PS' } | Sort-Object Name | ForEach-Object { Write-Output "    > $($_.Name): $($_.Value)" }
     } else { Write-Output "No policies found." }
 }
 elseif (# 03 Managed by Microsoft Configuration Manager
@@ -617,15 +643,13 @@ elseif (# 04 Managed by the Microsoft 365 admin center
     $UnmanagedFriendly = (Convert-OfficeChannel -OfficeChannel $regC2R.UnmanagedUpdateUrl).OfficeChannelFriendly
     $policyValues = if ($regC2R.UnmanagedUpdateUrl)
     {
-        $regC2R.PSObject.Properties | Where-Object { $_.Name -eq "UnmanagedUpdateUrl" } | ForEach-Object {
-            Write-Output "    • $($_.Name): $($_.Value)"
-        }
+        $regC2R.PSObject.Properties | Where-Object { $_.Name -eq "UnmanagedUpdateUrl" } | ForEach-Object { Write-Output "    > $($_.Name): $($_.Value)" }
     } else { Write-Output "No policies found." }
 }
 else
 {
     Write-Log -Content "No office udpate management found."
-    $officeManagement = "Office is managed by : No management found"
+    $officeManagement = "Office updates are not being managed"
 }
 
 #endregion ############### End Management Logic ###############
@@ -676,7 +700,7 @@ Write-Output @"
 
 "@
 
-Write-Host "       $officeManagement" -ForegroundColor Green
+Write-Host "    $officeManagement" -ForegroundColor Yellow
 
 Write-Output @"
 
@@ -689,12 +713,12 @@ Write-Output @"
 if ($policyValues) 
 {
     Write-Output $policyValues
-    if ($UnmanagedFriendly)
+    if ($mgmtType -eq 4 -and $UnmanagedFriendly)
     {
-        Write-Output "    • The default update channel for your tenant is set to: $UnmanagedFriendly"
+        Write-Output "    > The default update channel for your tenant is set to: $UnmanagedFriendly"
     }
 
-} else {Write-Output "     N/A"}
+} else {Write-Output "    N/A"}
 
 Write-Output @"
 
@@ -704,61 +728,40 @@ Write-Output @"
 
 "@
 
-if ($regADMX -and $mgmtType -ne 2)
+if ($mgmtType -eq 1 -and $regADMX -or $C2RComStatus -or $regC2R.UnmanagedUpdateUrl)
 {
-    Write-Host "    Management Type: ADMX (LPO, GPO, or Intune)" -ForegroundColor Yellow
-    Write-Output "    Path: $regADMXPath"
-    Write-Output ""
-    $policyValues = $regADMX.PSObject.Properties | Where-Object { $_.Name -notmatch '^PS' } | Sort-Object Name | ForEach-Object {
-            Write-Output "    • $($_.Name): $($_.Value)"
-        }
-    Write-Output $policyValues
-    Write-Output ""
+    # Output found for ADMX
+    if ($regADMX)
+    {
+        Write-Host "    Found: ADMX (LPO, GPO, or Intune)" -ForegroundColor Yellow
+        Write-Output "    Path: $regADMXPath"
+        Write-Output ""
+        $policyValues = $regADMX.PSObject.Properties | Where-Object { $_.Name -notmatch '^PS' } | Sort-Object Name | ForEach-Object { Write-Output "    > $($_.Name): $($_.Value)" }
+        Write-Output $policyValues
+        Write-Output ""
+    }
+    # Output found for ConfigMgr
+    if ($C2RComStatus) 
+    {
+        Write-Host "    Found: Microsoft Configuration Manager" -ForegroundColor Yellow
+        Write-Output "    Registered for OfficeMgmtCOM: $($C2RComStatus.Name) | $($C2RComStatus.Valid)"
+        Write-Output ""
+    }
+    # Output found for M365 admin center
+    if ($regC2R.UnmanagedUpdateUrl)
+    {
+        Write-Host "    Found: Microsoft 365 admin center (admin.microsoft.com)" -ForegroundColor Yellow
+        Write-Output "    Path: $regC2RPath"
+        Write-Output ""
+        $policyValues = $regC2R.PSObject.Properties | Where-Object { $_.Name -eq "UnmanagedUpdateUrl" } | ForEach-Object { Write-Output "    > $($_.Name): $($_.Value)" }
+        Write-Output $policyValues
+        if ($UnmanagedFriendly) {Write-Output "    > The default update channel for your tenant is set to: $UnmanagedFriendly"}
+    }
 }
-
-if ($C2RComStatus -and $mgmtType -ne 3)
-{
-    Write-Host "    Management Type: Microsoft Configuration Manager" -ForegroundColor Yellow
-    Write-Output "    Registered for OfficeMgmtCOM: $($C2RComStatus.Name) | $($C2RComStatus.Valid)"
-    Write-Output ""
-}
-
-if ($regC2R.UnmanagedUpdateUrl -and $mgmtType -ne 4)
-{
-    Write-Host "    Management Type: Microsoft 365 admin center (admin.microsoft.com)" -ForegroundColor Yellow
-    Write-Output "    Path: $regC2RPath"
-    
-    $policyValues = $regC2R.PSObject.Properties | Where-Object { $_.Name -eq "UnmanagedUpdateUrl" } | ForEach-Object {
-            Write-Output "    • $($_.Name): $($_.Value)"
-        }
-    Write-Output $policyValues
-    if ($UnmanagedFriendly) {Write-Output "    • The default update channel for your tenant is set to: $UnmanagedFriendly"}
-}
-
-if (($mgmtType -eq 1 -or $mgmtType -eq 3 -or $mgmtType -eq 4) -and !($regADMX) -and !($C2RComStatus) -and !($regC2R.UnmanagedUpdateUrl) -or
-    ($mgmtType -eq 2 -and !($C2RComStatus) -and !($regC2R.UnmanagedUpdateUrl)))
+else
 {
     Write-Output "    N/A"
 }
-
-<#
-if ($mgmtType -eq 1 -and !($regADMX) -and !($C2RComStatus) -and !($regC2R.UnmanagedUpdateUrl))
-{
-    Write-Output "    N/A"
-}
-elseif ($mgmtType -eq 2 -and !($C2RComStatus) -and !($regC2R.UnmanagedUpdateUrl))
-{
-    Write-Output "    N/A"
-}
-elseif ($mgmtType -eq 3 -and !($regADMX) -and !($regC2R.UnmanagedUpdateUrl))
-{
-    Write-Output "    N/A"
-}
-elseif ($mgmtType -eq 4 -and !($regADMX) -and !($C2RComStatus))
-{
-    Write-Output "    N/A"
-}
-#>
 
 Write-Output @"
 
@@ -766,25 +769,25 @@ Write-Output @"
 | Office Version Details                                                                             |
 +----------------------------------------------------------------------------------------------------+
 
-            Update Channel : $($Output.UpdateChannel)   
-             Build Version : $($Output.BuildVersion)
-           Release Version : $($Output.ReleaseVersion)
-         Availability Date : $($Output.AvailabilityDate)
+    Update Channel           : $($Output.UpdateChannel)   
+    Build Version            : $($Output.BuildVersion)
+    Release Version          : $($Output.ReleaseVersion)
+    Availability Date        : $($Output.AvailabilityDate)
 
 +----------------------------------------------------------------------------------------------------+
 | Device Details                                                                                     |
 +----------------------------------------------------------------------------------------------------+
 
-               Device Name : $($Output.DeviceName)
-            GlobalDeviceId : $($Output.GlobalDeviceId)
-           IsAzureAdJoined : $($Output.IsAzureAdJoined)
-            IsDomainJoined : $($Output.IsDomainJoined)
-        IsEnterpriseJoined : $($Output.IsADFSJoined)
-     IsHybridAzureADJoined : $($Output.IsHybridAzureAdJoined)
-       IsAzureADRegistered : $($Output.IsAzureAdRegistered)
-               Domain Name : $($Output.DomainName)
-               Tenant Name : $($Output.TenantName)
-                 Tenant ID : $($Output.TenantId)
+    Device Name              : $($Output.DeviceName)
+    GlobalDeviceId           : $($Output.GlobalDeviceId)
+    IsAzureAdJoined          : $($Output.IsAzureAdJoined)
+    IsDomainJoined           : $($Output.IsDomainJoined)
+    IsEnterpriseJoined       : $($Output.IsADFSJoined)
+    IsHybridAzureADJoined    : $($Output.IsHybridAzureAdJoined)
+    IsAzureADRegistered      : $($Output.IsAzureAdRegistered)
+    Domain Name              : $($Output.DomainName)
+    Tenant Name              : $($Output.TenantName)
+    Tenant ID                : $($Output.TenantId)
 
 "@
 
