@@ -1002,6 +1002,7 @@ if ($mgmtType -eq 1 -and $regADMX -or $C2RComStatus -or $regC2R.UnmanagedUpdateU
 else
 {
     Write-Output "    N/A"
+    Write-Output ""
 }
 
 Write-Output "+----------------------------------------------------------------------------------------------------+"
