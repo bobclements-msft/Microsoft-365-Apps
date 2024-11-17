@@ -1,12 +1,12 @@
 <#PSScriptInfo
 
-.VERSION 1.1
+.VERSION 1.3
 
-.GUID fc5c9bba-5f95-4e40-99c3-2b8785bb067c
+.GUID e7fb30c3-66c8-436e-bf9f-91a05f4934af
 
 .AUTHOR Bob Clements
 
-.COMPANYNAME
+.COMPANYNAME 
 
 .COPYRIGHT 
 
@@ -14,7 +14,7 @@
 
 .LICENSEURI 
 
-.PROJECTURI https://raw.githubusercontent.com/bobclements-msft/Microsoft-365-Apps/refs/heads/main/OMS/Get-OMS.ps1
+.PROJECTURI https://github.com/bobclements-msft/Microsoft-365-Apps/blob/main/OfficeManagementState/Get-OfficeManagementState.ps1
 
 .ICONURI 
 
@@ -27,6 +27,9 @@
 .RELEASENOTES
 Version 1.0:  Original published version.
 Version 1.1:  Fixed release information, code clean up.
+Version 1.2:  Added Intune policy discovery.
+Version 1.3:  Added C2R log parsing and reporting.
+
 #>
 
 <#
@@ -46,23 +49,33 @@ WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN 
 
 .DESCRIPTION
 This script retreives properties from the Windows registry to determine what management tool is currently managing updates for Microsoft 365 Apps. 
-.PARAMETER RemoteComputer
+.PARAMETER ComputerName
 Provide the name of a remote computer. All required information will be retreived using PowerShell remoting. Output will be shown locally.
+.PARAMETER IncludeLogs
+Include C2R log parsing and reporting. The operation may take longer.
 .PARAMETER UseCredentials
 Use specific account credentials for exection locally or remotely.
 .EXAMPLE
 # Runs the script on the local computer using the current credentials and outputs the results to the local console window.
 .\Get-OfficeManagementState.ps1
 .EXAMPLE
+# Runs the script on the local computer using the current credentials, parses the C2R logs, and outputs the results to the local console window.
+.\Get-OfficeManagementState.ps1 -IncludeLogs
+.EXAMPLE
 # Runs the script on the remote computer using the current credentials and outputs the results to the local console window.
-.\Get-OfficeManagementState.ps1 -RemoteComputer "RemotePC"
+.\Get-OfficeManagementState.ps1 -ComputerName "RemotePC"
 .EXAMPLE
 # Runs the script on the remote computer using the specified credentials and outputs results to the local console window.
-.\Get-OfficeManagementState.ps1 -RemoteComputer "RemotePC" -UseCredentials
+.\Get-OfficeManagementState.ps1 -ComputerName "RemotePC" -UseCredentials
+.EXAMPLE
+# Runs the script on the remote computer using the specified credentials, parses the C2R logs, and outputs results to the local console window.
+.\Get-OfficeManagementState.ps1 -IncludeLogs -ComputerName "RemotePC" -UseCredentials
 .NOTES
 Version History:
     1.0 - (2024-11-15) Original published version.
     1.1 - (2024-11-16) Fixed release information, code clean up.
+    1.2 - (2024-11-16) Added Intune policy discovery.
+    1.3 - (2024-11-17) Added C2R log parsing and reporting.
 #>
 
 [CmdletBinding()]
@@ -70,11 +83,39 @@ param (
     [Parameter(Mandatory=$false,Position=0,HelpMessage = "Provide the name of a remote computer. Output will be shown locally.")]
     [string]$ComputerName,
 
+    [Parameter(Mandatory=$false,Position=1,HelpMessage = "Query C2R logs for recent maangement activity.")]
+    [Switch]$IncludeLogs,
+
     [Parameter(Mandatory=$false,HelpMessage = "Use credentials for remote operations.")]
     [switch]$UseCredentials
 )
 
-#region Helper functions
+#region ############### Start Initialize ###############
+
+#=================== Configuration for logging and output ===================#
+
+# Path for log file output 
+$LogFile = "$env:windir\Temp\OfficeMgmtState.log"
+
+# Search criteria for C2R log parsing
+$searchCriteria = @(
+    @{ # Search logs for ODT activity
+        Keywords = @(".exe", ".xml", "/configure")
+        Pattern  = '^(?<Timestamp>\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2}\.\d{3})\s+(?<Component>SETUP \(\w+\))\s+(?<ThreadID>0x\w+)\s+(?<Category>Click-To-Run General Telemetry)\s+(?<EventID>\w+)\s+(?<Severity>Medium)\s+(?<EventName>\w+)\s+(?<EventData>\{.*\})$'
+    },
+    @{ # Search logs for CSP activity
+        Keywords = @(".exe", ".tmp", "/configure")
+        Pattern  = '^(?<Timestamp>\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2}\.\d{3})\s+(?<Component>\S+ \(\w+\))\s+(?<ThreadID>0x\w+)\s+(?<Category>Click-To-Run General Telemetry)\s+(?<EventID>\w+)\s+(?<Severity>Medium)\s+(?<EventName>\w+)\s+(?<EventData>\{.*\})$'
+    },
+    @{ # Search logs for channel change activity
+        Keywords = @("bj5z7", "Channel changed from")
+        Pattern  = '^(?<Timestamp>\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2}\.\d{3})\s+(?<Component>\S+ \(\w+\))\s+(?<ThreadID>0x\w+)\s+(?<Category>Click-To-Run Task Telemetry)\s+(?<EventID>\w+)\s+(?<Severity>Medium)\s+(?<EventName>\S+)\s+(?<EventData>\{.*\})$'
+    }
+)
+
+#endregion ############### End Initialize ###############
+
+#region ############### Start Functions ###############
 
 function Convert-OfficeChannel {
     <#
@@ -331,6 +372,58 @@ function Get-DsRegStatus {
     return $Output
 }
 
+function Get-IntuneOfficePolicies {
+    param (
+        [string]$basePath = "HKLM:\SOFTWARE\Microsoft\PolicyManager\Providers",
+        [string]$valueName = "L_UpdateBranch",
+        [string]$searchPattern = "*office16v2*Policy*L_MicrosoftOfficemachine*L_Updates",
+        [string]$ComputerName,
+        [pscredential]$Credential
+    )
+
+    $scriptBlock = {
+        param ($basePath, $valueName, $searchPattern)
+        
+        try {
+            # Get all subkeys under the base path
+            $subKeys = Get-ChildItem -Path $basePath -ErrorAction Stop
+
+            # Loop through each subkey to find the specific path and check the value
+            foreach ($subKey in $subKeys) {
+                $fullPath = Get-ChildItem -Path "$($subKey.PSPath)\default\Device" -Recurse -ErrorAction SilentlyContinue | 
+                            Where-Object { $_.PSPath -like "*$searchPattern*" }
+
+                # Check if the registry path exists
+                if ($fullPath) {
+                    # Get the registry value
+                    $value = Get-ItemProperty -Path $fullPath.PSPath -Name $valueName -ErrorAction SilentlyContinue
+                    
+                    # Check if the value exists and has data
+                    if ($value -and $value.$valueName) {
+                        Write-Output "Registry value found: $($value.$valueName)"
+                    }
+                }
+            }
+        } catch {
+            # Do nothing if the base path does not exist
+        }
+    }
+
+    try {
+        if ($ComputerName) {
+            if ($Credential) {
+                Invoke-Command -ComputerName $ComputerName -ScriptBlock $scriptBlock -Credential $Credential -ArgumentList $basePath, $valueName, $searchPattern -ErrorAction Stop
+            } else {
+                Invoke-Command -ComputerName $ComputerName -ScriptBlock $scriptBlock -ArgumentList $basePath, $valueName, $searchPattern -ErrorAction Stop
+            }
+        } else {
+            & $scriptBlock $basePath $valueName $searchPattern
+        }
+    } catch {
+        Write-Output "Failed to retrieve registry value from $ComputerName. Error: $_"
+    }
+}
+
 function Get-RegistryValue {
     <#
     .SYNOPSIS
@@ -401,6 +494,125 @@ function Get-RegistryValue {
     }
 
     return $result
+}
+
+function Search-C2RLogs {
+    param (
+        [Parameter(Mandatory = $true)]
+        [hashtable[]]$SearchCriteria,
+
+        [Parameter(Mandatory = $false)]
+        [string]$ComputerName,
+
+        [Parameter(Mandatory = $false)]
+        [pscredential]$Credential
+    )
+
+    $scriptBlock = {
+        param ($SearchCriteria)
+        
+        $logPaths = @("C:\Windows\Temp")
+        $userProfiles = Get-ChildItem -Path "C:\Users" -Directory
+        foreach ($profile in $userProfiles) {
+            $logPaths += "C:\Users\$($profile.Name)\AppData\Local\Temp"
+        }
+
+        $logEntries = @()
+
+        foreach ($logPath in $logPaths) {
+            $logFiles = Get-ChildItem -Path $logPath -Filter *.log -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*$env:computername*" }
+            $totalFiles = $logFiles.Count
+            $currentFile = 0
+
+            foreach ($logFile in $logFiles) {
+                $currentFile++
+                Write-Progress -Activity "Searching log files" -Status "Processing $($logFile.Name)" -PercentComplete (($currentFile / $totalFiles) * 100)
+
+                try {
+                    $logContent = Get-Content -Path $logFile.FullName -ErrorAction Stop
+
+                    foreach ($line in $logContent) {
+                        foreach ($criteria in $SearchCriteria) {
+                            $matchesAllKeywords = $true
+                            foreach ($keyword in $criteria.Keywords) {
+                                if (-not ($line -match [regex]::Escape($keyword))) {
+                                    $matchesAllKeywords = $false
+                                    break
+                                }
+                            }
+
+                            if ($matchesAllKeywords) {
+                                $line = $line.Trim()
+                                try {
+                                    $matches = [regex]::Match($line, $criteria.Pattern)
+                                    if ($matches.Success) {
+                                        $logEntry = [pscustomobject]@{
+                                            LogFilePath = $logFile.FullName
+                                        }
+
+                                        if ($matches.Groups['Timestamp'].Success) {
+                                            $logEntry | Add-Member -MemberType NoteProperty -Name "Timestamp" -Value ([datetime]::ParseExact($matches.Groups['Timestamp'].Value, 'MM/dd/yyyy HH:mm:ss.fff', $null))
+                                        }
+                                        if ($matches.Groups['EventData'].Success) {
+                                            $eventData = $matches.Groups['EventData'].Value
+                                            try {
+                                                $eventDataObject = $eventData | ConvertFrom-Json
+                                                if ($eventDataObject.ContextData) {
+                                                    $contextData = $eventDataObject.ContextData | ConvertFrom-Json
+                                                    if ($contextData.ModulePath) {
+                                                        $logEntry | Add-Member -MemberType NoteProperty -Name "ModulePath" -Value $contextData.ModulePath
+                                                    }
+                                                    if ($contextData.CommandLine) {
+                                                        $logEntry | Add-Member -MemberType NoteProperty -Name "CommandLine" -Value $contextData.CommandLine
+                                                    }
+                                                    if ($contextData.message) {
+                                                        $logEntry | Add-Member -MemberType NoteProperty -Name "ContextMessage" -Value $contextData.message
+                                                    }
+                                                }
+                                            } catch {
+                                                Write-Output "Error processing EventData: $_"
+                                            }
+                                        }
+
+                                        $logEntries += $logEntry
+                                    }
+                                } catch {
+                                    Write-Output "Error matching line: $_"
+                                }
+                            }
+                        }
+                    }
+                } catch {
+                    Write-Output "Error reading file $($logFile.FullName): $_"
+                }
+            }
+        }
+
+        $sortedLogEntries = $logEntries | Sort-Object -Property Timestamp
+
+        foreach ($entry in $sortedLogEntries) {
+            Write-Output "------------------------------------------------"
+            if ($entry.PSObject.Properties['LogFilePath']) { Write-Output "Log File Path: $($entry.LogFilePath)" }
+            if ($entry.PSObject.Properties['Timestamp']) { Write-Output "Timestamp: $($entry.Timestamp)" }
+            if ($entry.PSObject.Properties['ModulePath']) { Write-Output "ModulePath: $($entry.ModulePath)" }
+            if ($entry.PSObject.Properties['CommandLine']) { Write-Output "CommandLine: $($entry.CommandLine)" }
+            if ($entry.PSObject.Properties['ContextMessage']) { Write-Output "Context Message: $($entry.ContextMessage)" }
+        }
+    }
+
+    try {
+        if ($ComputerName) {
+            if ($Credential) {
+                Invoke-Command -ComputerName $ComputerName -ScriptBlock $scriptBlock -Credential $Credential -ArgumentList $SearchCriteria -ErrorAction Stop
+            } else {
+                Invoke-Command -ComputerName $ComputerName -ScriptBlock $scriptBlock -ArgumentList $SearchCriteria -ErrorAction Stop
+            }
+        } else {
+            & $scriptBlock $SearchCriteria
+        }
+    } catch {
+        Write-Error "Failed to search logs on $ComputerName. Error: $_"
+    }
 }
 
 function Test-RemotePowerShellAccess {
@@ -494,7 +706,9 @@ function Write-Log {
     #Write-Output $LogLine
 }
 
-#endregion
+#endregion ############### End Functions ###############
+
+#region ############### Start OMS Query ###############
 
 Write-Log -Content "***** INITIALIZING SCRIPT - OMS *****"
 
@@ -508,7 +722,6 @@ $regC2RPath = "HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration"
 $regC2RSMPath = "HKLM:\SOFTWARE\Microsoft\Office\C2RSvcMgr"
 $regADMXPath = "HKLM:\SOFTWARE\Policies\Microsoft\office\16.0\Common\officeupdate"
 $regSMPath = "HKLM:\SOFTWARE\Policies\Microsoft\cloud\office\16.0\Common\officeupdate"
-#$regOCSPPath = "HKLM:\SOFTWARE\Microsoft\OfficeCSP"
 
 Write-Log -Content "Retreiving OMS data from the device."
 
@@ -519,6 +732,8 @@ if ($ComputerName) {
         Test-RemotePowerShellAccess -ComputerName $ComputerName -Credential $Credential
         $ComputerInfo = Get-DsRegStatus -ComputerName $ComputerName -Credential $Credential
         $C2RComStatus = Get-C2RCom -ComputerName $ComputerName -Credential $Credential
+        if($IncludeLogs) {$C2RLogs = Search-C2RLogs -SearchCriteria $searchCriteria -ComputerName $ComputerName -Credential $Credential}
+        $intunePolicyStatus = Get-IntuneOfficePolicies -ComputerName $ComputerName -Credential $Credential
         $regC2R = Get-RegistryValue -RegistryPath $regC2RPath -ComputerName $ComputerName -Credential $Credential
         $regC2RSM = Get-RegistryValue -RegistryPath $regC2RSMPath -ComputerName $ComputerName -Credential $Credential
         $regADMX = Get-RegistryValue -RegistryPath $regADMXPath -ComputerName $ComputerName -Credential $Credential
@@ -528,6 +743,8 @@ if ($ComputerName) {
         Test-RemotePowerShellAccess -ComputerName $ComputerName
         $ComputerInfo = Get-DsRegStatus -ComputerName $ComputerName
         $C2RComStatus = Get-C2RCom -ComputerName $ComputerName
+        if($IncludeLogs) {$C2RLogs = Search-C2RLogs -SearchCriteria $searchCriteria -ComputerName $ComputerName}
+        $intunePolicyStatus = Get-IntuneOfficePolicies -ComputerName $ComputerName
         $regC2R = Get-RegistryValue -RegistryPath $regC2RPath -ComputerName $ComputerName
         $regC2RSM = Get-RegistryValue -RegistryPath $regC2RSMPath -ComputerName $ComputerName
         $regADMX = Get-RegistryValue -RegistryPath $regADMXPath -ComputerName $ComputerName
@@ -538,6 +755,8 @@ if ($ComputerName) {
         Write-Log -Content "Running capture on the local computer using UseCredentials."
         $ComputerInfo = Get-DsRegStatus -Credential $Credential
         $C2RComStatus = Get-C2RCom -Credential $Credential
+        if($IncludeLogs) {$C2RLogs = Search-C2RLogs -SearchCriteria $searchCriteria -Credential $Credential}
+        $intunePolicyStatus = Get-IntuneOfficePolicies -Credential $Credential
         $regC2R = Get-RegistryValue -RegistryPath $regC2RPath -Credential $Credential
         $regC2RSM = Get-RegistryValue -RegistryPath $regC2RSMPath -Credential $Credential
         $regADMX = Get-RegistryValue -RegistryPath $regADMXPath -Credential $Credential
@@ -546,6 +765,8 @@ if ($ComputerName) {
         Write-Log -Content "Running capture on the local computer using current credentials."
         $ComputerInfo = Get-DsRegStatus
         $C2RComStatus = Get-C2RCom
+        if($IncludeLogs) {$C2RLogs = Search-C2RLogs -SearchCriteria $searchCriteria}
+        $intunePolicyStatus = Get-IntuneOfficePolicies
         $regC2R = Get-RegistryValue -RegistryPath $regC2RPath
         $regC2RSM = Get-RegistryValue -RegistryPath $regC2RSMPath
         $regADMX = Get-RegistryValue -RegistryPath $regADMXPath
@@ -571,6 +792,8 @@ if ($buildVersion) {$C2RReleaseInfo = Get-C2RReleaseInfo -BuildVersion $buildVer
 # Format DsRegStatus output
 Write-Log -Content "Formatting computer info."
 if ($ComputerInfo.AzureAdJoined -eq "YES" -and $ComputerInfo.DomainJoined -eq "YES") {$HybridJoin = "True"} else {$HybridJoin = "False"}
+
+#endregion ############### End OMS Query ###############
 
 #region ############### Start Management Logic ###############
 
@@ -609,15 +832,28 @@ elseif (# 02 Managed by ADMX policies via LPO, GPO, and/or Intune
     $regSM.ignoregpo -eq 0 -or !($regSM.ignoreegpo) -and $regADMX.updatebranch -or $regADMX.updatepath
 )
 {
-    Write-Log -Content "ADMX policies found."
-    $officeManagement = "Office is managed by : ADMX (LPO, GPO, or Intune)"
-    $mgmtType = 2
-    $policyValues = if ($regADMX) 
+    if ($intunePolicyStatus)
     {
-        Write-Output "    Path: $regADMXPath"
-        Write-Output ""
-        $regADMX.PSObject.Properties | Where-Object { $_.Name -notmatch '^PS' } | Sort-Object Name | ForEach-Object { Write-Output "    > $($_.Name): $($_.Value)" }
-    } else { Write-Output "No policies found." }
+        Write-Log -Content "ADMX and Intune policies found."
+        $officeManagement = "Office is managed by : ADMX (Intune)"
+        $mgmtType = 2
+        $policyValues = if ($regADMX) 
+        {
+            Write-Output "    Path: $regADMXPath"
+            Write-Output ""
+            $regADMX.PSObject.Properties | Where-Object { $_.Name -notmatch '^PS' } | Sort-Object Name | ForEach-Object { Write-Output "    > $($_.Name): $($_.Value)" }
+        } else { Write-Output "No policies found." }
+    } else {
+        Write-Log -Content "ADMX policies found."
+        $officeManagement = "Office is managed by : ADMX (LPO or GPO)"
+        $mgmtType = 2
+        $policyValues = if ($regADMX) 
+        {
+            Write-Output "    Path: $regADMXPath"
+            Write-Output ""
+            $regADMX.PSObject.Properties | Where-Object { $_.Name -notmatch '^PS' } | Sort-Object Name | ForEach-Object { Write-Output "    > $($_.Name): $($_.Value)" }
+        } else { Write-Output "No policies found." }
+    }
 }
 elseif (# 03 Managed by Microsoft Configuration Manager
     # SM ignoregpo=0 or not present + updatebranch and updatepath for ADMX not present + OfficeC2RCom is registered
@@ -692,23 +928,20 @@ Write-Log -Content "Sending OMS output to console."
 
 # Write output to screen
 $ErrorActionPreference = 'SilentlyContinue'
-Write-Output @"
 
-+----------------------------------------------------------------------------------------------------+
-| Office Management State                                                                            |
-+----------------------------------------------------------------------------------------------------+
-
-"@
+Write-Output ""
+Write-Output "+----------------------------------------------------------------------------------------------------+"
+Write-Output "| Office Management State                                                                            |"
+Write-Output "+----------------------------------------------------------------------------------------------------+"
+Write-Output ""
 
 Write-Host "    $officeManagement" -ForegroundColor Yellow
 
-Write-Output @"
-
-+----------------------------------------------------------------------------------------------------+
-| Top Office Update Policies | Polices with the highest priority controlling update management       |
-+----------------------------------------------------------------------------------------------------+
-
-"@
+Write-Output ""
+Write-Output "+----------------------------------------------------------------------------------------------------+"
+Write-Output "| Top Office Update Policies | Polices with the highest priority controlling update management       |"
+Write-Output "+----------------------------------------------------------------------------------------------------+"
+Write-Output ""
 
 if ($policyValues) 
 {
@@ -720,20 +953,28 @@ if ($policyValues)
 
 } else {Write-Output "    N/A"}
 
-Write-Output @"
-
-+----------------------------------------------------------------------------------------------------+
-| Other Office Update Policies | Lower priority policies; conflicts should be addressed              |
-+----------------------------------------------------------------------------------------------------+
-
-"@
+Write-Output ""
+Write-Output "+----------------------------------------------------------------------------------------------------+"
+Write-Output "| Other Office Update Policies | Lower priority policies; conflicts should be addressed              |"
+Write-Output "+----------------------------------------------------------------------------------------------------+"
+Write-Output ""
 
 if ($mgmtType -eq 1 -and $regADMX -or $C2RComStatus -or $regC2R.UnmanagedUpdateUrl)
 {
-    # Output found for ADMX
-    if ($regADMX)
+    # Output found for ADMX and Intune
+    if ($mgmtType -ne 2 -and $regADMX -and $intunePolicyStatus)
     {
-        Write-Host "    Found: ADMX (LPO, GPO, or Intune)" -ForegroundColor Yellow
+        Write-Host "    Found: ADMX (Intune)" -ForegroundColor Yellow
+        Write-Output "    Path: $regADMXPath"
+        Write-Output ""
+        $policyValues = $regADMX.PSObject.Properties | Where-Object { $_.Name -notmatch '^PS' } | Sort-Object Name | ForEach-Object { Write-Output "    > $($_.Name): $($_.Value)" }
+        Write-Output $policyValues
+        Write-Output ""
+    }
+    # Output found for ADMX and Intune
+    if ($mgmtType -ne 2 -and $regADMX -and !($intunePolicyStatus))
+    {
+        Write-Host "    Found: ADMX (LPO or GPO)" -ForegroundColor Yellow
         Write-Output "    Path: $regADMXPath"
         Write-Output ""
         $policyValues = $regADMX.PSObject.Properties | Where-Object { $_.Name -notmatch '^PS' } | Sort-Object Name | ForEach-Object { Write-Output "    > $($_.Name): $($_.Value)" }
@@ -763,33 +1004,48 @@ else
     Write-Output "    N/A"
 }
 
-Write-Output @"
+Write-Output "+----------------------------------------------------------------------------------------------------+"
+Write-Output "| Office Version Details                                                                             |"
+Write-Output "+----------------------------------------------------------------------------------------------------+"
+Write-Output ""
+Write-Output "    Update Channel           : $($Output.UpdateChannel)"
+Write-Output "    Build Version            : $($Output.BuildVersion)"
+Write-Output "    Release Version          : $($Output.ReleaseVersion)"
+Write-Output "    Availability Date        : $($Output.AvailabilityDate)"
+Write-Output ""
+Write-Output "+----------------------------------------------------------------------------------------------------+"
+Write-Output "| Device Details                                                                                     |"
+Write-Output "+----------------------------------------------------------------------------------------------------+"
+Write-Output ""
+Write-Output "    Device Name              : $($Output.DeviceName)"
+Write-Output "    GlobalDeviceId           : $($Output.GlobalDeviceId)"
+Write-Output "    IsAzureAdJoined          : $($Output.IsAzureAdJoined)"
+Write-Output "    IsDomainJoined           : $($Output.IsDomainJoined)"
+Write-Output "    IsEnterpriseJoined       : $($Output.IsADFSJoined)"
+Write-Output "    IsHybridAzureADJoined    : $($Output.IsHybridAzureAdJoined)"
+Write-Output "    IsAzureADRegistered      : $($Output.IsAzureAdRegistered)"
+Write-Output "    Domain Name              : $($Output.DomainName)"
+Write-Output "    Tenant Name              : $($Output.TenantName)"
+Write-Output "    Tenant ID                : $($Output.TenantId)"
+Write-Output ""
 
-+----------------------------------------------------------------------------------------------------+
-| Office Version Details                                                                             |
-+----------------------------------------------------------------------------------------------------+
+if($IncludeLogs)
+{
 
-    Update Channel           : $($Output.UpdateChannel)   
-    Build Version            : $($Output.BuildVersion)
-    Release Version          : $($Output.ReleaseVersion)
-    Availability Date        : $($Output.AvailabilityDate)
+    Write-Output "+----------------------------------------------------------------------------------------------------+"
+    Write-Output "| C2R Log History | ODT, CSP, and Channel Change events                                              |"
+    Write-Output "+----------------------------------------------------------------------------------------------------+"
 
-+----------------------------------------------------------------------------------------------------+
-| Device Details                                                                                     |
-+----------------------------------------------------------------------------------------------------+
-
-    Device Name              : $($Output.DeviceName)
-    GlobalDeviceId           : $($Output.GlobalDeviceId)
-    IsAzureAdJoined          : $($Output.IsAzureAdJoined)
-    IsDomainJoined           : $($Output.IsDomainJoined)
-    IsEnterpriseJoined       : $($Output.IsADFSJoined)
-    IsHybridAzureADJoined    : $($Output.IsHybridAzureAdJoined)
-    IsAzureADRegistered      : $($Output.IsAzureAdRegistered)
-    Domain Name              : $($Output.DomainName)
-    Tenant Name              : $($Output.TenantName)
-    Tenant ID                : $($Output.TenantId)
-
-"@
+    if ($C2RLogs)
+    {
+        Write-Output ""
+        Read-Host -Prompt "Press Enter to show C2R log activity"
+        Write-Output $C2RLogs
+    } else {
+        Write-Output ""
+        Write-Output "    No relative C2R log entries found"
+    }
+}
 
 Write-Output ""
 
