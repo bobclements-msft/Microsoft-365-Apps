@@ -21,13 +21,13 @@ This script is available via [PowerShell Gallery](https://www.powershellgallery.
 
 ## Script usage
 Run the script locally or against a remote computer:
-- `PS> Get-Get-OfficeManagementState.ps1`
+- `PS> Get-OfficeManagementState.ps1`
     - Runs the script on the local computer using the current credentials and outputs results to the local console window.
-- `PS> Get-Get-OfficeManagementState.ps1 -IncludeLogs`
+- `PS> Get-OfficeManagementState.ps1 -IncludeLogs`
     - Runs the script on the local computer using the current credentials and outputs results to the local console window; includes C2R logs.
-- `PS> Get-Get-OfficeManagementState.ps1 -IncludeLogs -ComputerName "RemotePC"`
+- `PS> Get-OfficeManagementState.ps1 -IncludeLogs -ComputerName "RemotePC"`
     - Runs the script on the remote computer using the current credentials and outputs results to the local console window.
-- `PS> Get-Get-OfficeManagementState.ps1 -ComputerName "RemotePC" -UseCredentials`
+- `PS> Get-OfficeManagementState.ps1 -ComputerName "RemotePC" -UseCredentials`
     - Runs the script on the remote computer using the specified credentials and outputs results to the local console window.
    
 ## Sample output
