@@ -10,20 +10,24 @@ There are a variety of options available for managing and deploying Microsoft 36
 - [Change the Microsoft 365 Apps update channel for devices in your organization](https://learn.microsoft.com/microsoft-365-apps/updates/change-update-channels)
 - [Change update channel of Microsoft 365 Apps to enable Copilot](https://learn.microsoft.com/microsoft-365-apps/updates/change-channel-for-copilot)
 
-## Script usage
-1. Download the script (e.g., `C:\Script\Get-OfficeManagementState.ps1`).
-2. Open PowerShell/Terminal and navigate to the directory where the script is saved (e.g., `cd \Script`).
-3. Choose the execution method right for your environment. For my testing I allow execution for the running process: `Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process`.
-4. Run the script locally or against a remote computer:
-    - `PS> Get-Get-OfficeManagementState.ps1`
-      - Runs the script on the local computer using the current credentials and outputs results to the local console window.
-    - `PS> Get-Get-OfficeManagementState.ps1 -IncludeLogs`
-      - Runs the script on the local computer using the current credentials and outputs results to the local console window; includes C2R logs.
-    - `PS> Get-Get-OfficeManagementState.ps1 -ComputerName "RemotePC"`
-      - Runs the script on the remote computer using the current credentials and outputs results to the local console window.
+## Install script
+This script is available via [PowerShell Gallery](https://www.powershellgallery.com/packages/Get-OfficeManagementState), and can be installed directly.
+1. Open an elevated PowerShell/Terminal window.
+2. Choose the execution method right for your environment. For my testing I allow execution for the running process: `Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process`.
+3. Install: `Install-Script -Name Get-OfficeManagementState -Force`
+4. Verify version: `Get-InstalledScript -Name Get-OfficeManagementState`
+5. Uninstall: `Uninstall-Script -Name Get-OfficeManagementState`
 
-    - `PS> Get-Get-OfficeManagementState.ps1 -ComputerName "RemotePC" -UseCredentials`
-      - Runs the script on the remote computer using the specified credentials and outputs results to the local console window.
+## Script usage
+Run the script locally or against a remote computer:
+- `PS> Get-Get-OfficeManagementState.ps1`
+    - Runs the script on the local computer using the current credentials and outputs results to the local console window.
+- `PS> Get-Get-OfficeManagementState.ps1 -IncludeLogs`
+    - Runs the script on the local computer using the current credentials and outputs results to the local console window; includes C2R logs.
+- `PS> Get-Get-OfficeManagementState.ps1 -IncludeLogs -ComputerName "RemotePC"`
+    - Runs the script on the remote computer using the current credentials and outputs results to the local console window.
+- `PS> Get-Get-OfficeManagementState.ps1 -ComputerName "RemotePC" -UseCredentials`
+    - Runs the script on the remote computer using the specified credentials and outputs results to the local console window.
    
 ## Sample output
 ![OMS sample output](https://github.com/bobclements-msft/Microsoft-365-Apps/blob/main/OfficeManagementState/images/OMS-sample.png)
