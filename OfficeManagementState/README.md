@@ -13,10 +13,11 @@ There are a variety of options available for managing and deploying Microsoft 36
 ## Install script
 This script is available via [PowerShell Gallery](https://www.powershellgallery.com/packages/Get-OfficeManagementState), and can be installed directly.
 1. Open an elevated PowerShell/Terminal window.
-2. Choose the execution method right for your environment. For my testing I allow execution for the running process: `Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process`.
-3. Install: `Install-Script -Name Get-OfficeManagementState -Force`
-4. Verify version: `Get-InstalledScript -Name Get-OfficeManagementState`
-5. Uninstall: `Uninstall-Script -Name Get-OfficeManagementState`
+2. Choose the execution method right for your environment. For my testing I allow execution for the running process:
+    - `Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process`
+4. Install: `Install-Script -Name Get-OfficeManagementState -Force`
+5. Verify version: `Get-InstalledScript -Name Get-OfficeManagementState`
+6. Uninstall: `Uninstall-Script -Name Get-OfficeManagementState`
 
 ## Script usage
 Run the script locally or against a remote computer:
