@@ -31,4 +31,5 @@ Run the script locally or against a remote computer:
     - Runs the script on the remote computer using the specified credentials and outputs results to the local console window.
    
 ## Sample output
-![OMS sample output](https://github.com/bobclements-msft/Microsoft-365-Apps/blob/main/OfficeManagementState/images/OMS-sample.png)
+![OMS sample output](https://github.com/bobclements-msft/Microsoft-365-Apps/blob/main/OfficeManagementState/images/OMS-Sample.png)
+                     
