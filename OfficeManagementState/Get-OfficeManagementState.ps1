@@ -1,6 +1,6 @@
 <#PSScriptInfo
 
-.VERSION 1.3
+.VERSION 1.3.2
 
 .GUID e7fb30c3-66c8-436e-bf9f-91a05f4934af
 
@@ -28,7 +28,8 @@
 Version 1.0:  Original published version.
 Version 1.1:  Fixed release information, code clean up.
 Version 1.2:  Added Intune policy discovery.
-Version 1.3:  Added C2R log parsing and reporting.
+Version 1.3.1:  Added C2R log parsing and reporting.
+Version 1.3.2:  Simplified log parsing and output.
 
 #>
 
@@ -75,7 +76,8 @@ Version History:
     1.0 - (2024-11-15) Original published version.
     1.1 - (2024-11-16) Fixed release information, code clean up.
     1.2 - (2024-11-16) Added Intune policy discovery.
-    1.3 - (2024-11-17) Added C2R log parsing and reporting.
+    1.3.1 - (2024-11-17) Added C2R log parsing and reporting.
+    1.3.2 - (2024-11-21) Simplified log parsing and output.
 #>
 
 [CmdletBinding()]
@@ -101,15 +103,15 @@ $LogFile = "$env:windir\Temp\OfficeMgmtState.log"
 $searchCriteria = @(
     @{ # Search logs for ODT activity
         Keywords = @(".exe", ".xml", "/configure")
-        Pattern  = '^(?<Timestamp>\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2}\.\d{3})\s+(?<Component>SETUP \(\w+\))\s+(?<ThreadID>0x\w+)\s+(?<Category>Click-To-Run General Telemetry)\s+(?<EventID>\w+)\s+(?<Severity>Medium)\s+(?<EventName>\w+)\s+(?<EventData>\{.*\})$'
+        Description = "Match Found for Office Deployment Toolkit"
     },
     @{ # Search logs for CSP activity
         Keywords = @(".exe", ".tmp", "/configure")
-        Pattern  = '^(?<Timestamp>\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2}\.\d{3})\s+(?<Component>\S+ \(\w+\))\s+(?<ThreadID>0x\w+)\s+(?<Category>Click-To-Run General Telemetry)\s+(?<EventID>\w+)\s+(?<Severity>Medium)\s+(?<EventName>\w+)\s+(?<EventData>\{.*\})$'
+        Description = "Match Found for Intune OfficeCSP"
     },
-    @{ # Search logs for channel change activity
+    @{ # Search logs for channel change activity format 1
         Keywords = @("bj5z7", "Channel changed from")
-        Pattern  = '^(?<Timestamp>\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2}\.\d{3})\s+(?<Component>\S+ \(\w+\))\s+(?<ThreadID>0x\w+)\s+(?<Category>Click-To-Run Task Telemetry)\s+(?<EventID>\w+)\s+(?<Severity>Medium)\s+(?<EventName>\S+)\s+(?<EventData>\{.*\})$'
+        Description = "Match Found for Channel Change"
     }
 )
 
@@ -172,7 +174,7 @@ function Convert-OfficeChannel {
             $OfficeChannelFriendly = "LTSB 2024"
         }
         default {
-            $OfficeChannelFriendly = "Unknown"
+            $OfficeChannelFriendly = "Not found"
         }
     }
 
@@ -542,43 +544,13 @@ function Search-C2RLogs {
                             }
 
                             if ($matchesAllKeywords) {
-                                $line = $line.Trim()
-                                try {
-                                    $matches = [regex]::Match($line, $criteria.Pattern)
-                                    if ($matches.Success) {
-                                        $logEntry = [pscustomobject]@{
-                                            LogFilePath = $logFile.FullName
-                                        }
-
-                                        if ($matches.Groups['Timestamp'].Success) {
-                                            $logEntry | Add-Member -MemberType NoteProperty -Name "Timestamp" -Value ([datetime]::ParseExact($matches.Groups['Timestamp'].Value, 'MM/dd/yyyy HH:mm:ss.fff', $null))
-                                        }
-                                        if ($matches.Groups['EventData'].Success) {
-                                            $eventData = $matches.Groups['EventData'].Value
-                                            try {
-                                                $eventDataObject = $eventData | ConvertFrom-Json
-                                                if ($eventDataObject.ContextData) {
-                                                    $contextData = $eventDataObject.ContextData | ConvertFrom-Json
-                                                    if ($contextData.ModulePath) {
-                                                        $logEntry | Add-Member -MemberType NoteProperty -Name "ModulePath" -Value $contextData.ModulePath
-                                                    }
-                                                    if ($contextData.CommandLine) {
-                                                        $logEntry | Add-Member -MemberType NoteProperty -Name "CommandLine" -Value $contextData.CommandLine
-                                                    }
-                                                    if ($contextData.message) {
-                                                        $logEntry | Add-Member -MemberType NoteProperty -Name "ContextMessage" -Value $contextData.message
-                                                    }
-                                                }
-                                            } catch {
-                                                Write-Output "Error processing EventData: $_"
-                                            }
-                                        }
-
-                                        $logEntries += $logEntry
-                                    }
-                                } catch {
-                                    Write-Output "Error matching line: $_"
+                                $logEntry = [pscustomobject]@{
+                                    LogFilePath = $logFile.FullName
+                                    Timestamp = (Get-Date)
+                                    LogLine = $line.Trim()
+                                    Description = $criteria.Description
                                 }
+                                $logEntries += $logEntry
                             }
                         }
                     }
@@ -592,11 +564,11 @@ function Search-C2RLogs {
 
         foreach ($entry in $sortedLogEntries) {
             Write-Output "------------------------------------------------"
+            if ($entry.PSObject.Properties['Description']) { Write-Output "Description: $($entry.Description)" }
             if ($entry.PSObject.Properties['LogFilePath']) { Write-Output "Log File Path: $($entry.LogFilePath)" }
             if ($entry.PSObject.Properties['Timestamp']) { Write-Output "Timestamp: $($entry.Timestamp)" }
-            if ($entry.PSObject.Properties['ModulePath']) { Write-Output "ModulePath: $($entry.ModulePath)" }
-            if ($entry.PSObject.Properties['CommandLine']) { Write-Output "CommandLine: $($entry.CommandLine)" }
-            if ($entry.PSObject.Properties['ContextMessage']) { Write-Output "Context Message: $($entry.ContextMessage)" }
+            if ($entry.PSObject.Properties['LogLine']) { Write-Output "Log Line: `n$($entry.LogLine)" }
+            Write-Output "------------------------------------------------"
         }
     }
 
@@ -996,7 +968,10 @@ if ($mgmtType -eq 1 -and $regADMX -or $C2RComStatus -or $regC2R.UnmanagedUpdateU
         Write-Output ""
         $policyValues = $regC2R.PSObject.Properties | Where-Object { $_.Name -eq "UnmanagedUpdateUrl" } | ForEach-Object { Write-Output "    > $($_.Name): $($_.Value)" }
         Write-Output $policyValues
-        if ($UnmanagedFriendly) {Write-Output "    > The default update channel for your tenant is set to: $UnmanagedFriendly"}
+        if ($UnmanagedFriendly) {
+            Write-Output "    > The default update channel for your tenant is set to: $UnmanagedFriendly"
+            Write-Output ""
+        }
     }
 }
 else
@@ -1044,7 +1019,7 @@ if($IncludeLogs)
         Write-Output $C2RLogs
     } else {
         Write-Output ""
-        Write-Output "    No relative C2R log entries found"
+        Write-Output "    No matching C2R log entries found"
     }
 }
 
